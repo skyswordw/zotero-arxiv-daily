@@ -163,15 +163,19 @@ class ArxivPaper:
                 conclusion = match.group(0)
 
         prompt = """Given the title, abstract, introduction and the conclusion (if any) of a paper in latex format, generate three types of summaries:
-        1. One-sentence English TLDR
-        2. One-sentence Chinese TLDR
-        3. A detailed Chinese analysis (around 200 words) covering research background, innovations, key findings, and potential impact
+        1. One-sentence English TLDR (focus on the core contribution and impact)
+        2. One-sentence Chinese TLDR (focus on the core contribution and impact)
+        3. A detailed Chinese analysis (around 200 words) covering:
+           - Research background and motivation
+           - Key innovations and technical approach
+           - Main findings and results
+           - Potential impact and applications
         
-        Please format your response in JSON:
+        Please format your response EXACTLY as follows:
         {
             "tldr_en": "English TLDR here",
-            "tldr_zh": "Chinese TLDR here",
-            "detailed_analysis": "Detailed Chinese analysis here"
+            "tldr_zh": "中文TLDR在这里",
+            "detailed_analysis": "详细的中文分析在这里"
         }
 
         Paper content:
@@ -198,15 +202,29 @@ class ArxivPaper:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert scientific paper analyzer who can provide comprehensive and accurate paper summaries in both English and Chinese.",
+                        "content": """You are an expert scientific paper analyzer who can provide comprehensive and accurate paper summaries in both English and Chinese. 
+                        Always respond in the exact JSON format requested, with all fields in UTF-8 encoding.
+                        Ensure all Chinese text is properly formatted and encoded.""",
                     },
                     {"role": "user", "content": prompt},
                 ]
             )
             # 解析 JSON 响应
             import json
-            result = json.loads(analysis)
-            return result
+            try:
+                result = json.loads(analysis)
+                # 验证所有必需的字段都存在
+                required_fields = ['tldr_en', 'tldr_zh', 'detailed_analysis']
+                for field in required_fields:
+                    if field not in result or not result[field]:
+                        raise ValueError(f"Missing or empty field: {field}")
+                return result
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response for {self.arxiv_id}: {e}")
+                raise
+            except ValueError as e:
+                logger.error(f"Invalid response format for {self.arxiv_id}: {e}")
+                raise
         except Exception as e:
             logger.error(f"Failed to generate paper analysis for {self.arxiv_id}: {e}")
             return {
