@@ -133,7 +133,15 @@ class ArxivPaper:
         return file_contents
     
     @cached_property
-    def tldr(self) -> str:
+    def paper_analysis(self) -> dict:
+        """生成论文的多维度分析结果，包括中英文摘要和详细解读。
+
+        Returns:
+            dict: 包含以下键值对：
+                - tldr_en: 英文一句话摘要
+                - tldr_zh: 中文一句话摘要
+                - detailed_analysis: 中文详细解读
+        """
         introduction = ""
         conclusion = ""
         if self.tex is not None:
@@ -147,20 +155,32 @@ class ArxivPaper:
             #remove table
             content = re.sub(r'\\begin\{table\}.*?\\end\{table\}', '', content, flags=re.DOTALL)
             #find introduction and conclusion
-            # end word can be \section or \end{document} or \bibliography or \appendix
             match = re.search(r'\\section\{Introduction\}.*?(\\section|\\end\{document\}|\\bibliography|\\appendix|$)', content, flags=re.DOTALL)
             if match:
                 introduction = match.group(0)
             match = re.search(r'\\section\{Conclusion\}.*?(\\section|\\end\{document\}|\\bibliography|\\appendix|$)', content, flags=re.DOTALL)
             if match:
                 conclusion = match.group(0)
-        prompt = """Given the title, abstract, introduction and the conclusion (if any) of a paper in latex format, generate a one-sentence TLDR summary:
+
+        prompt = """Given the title, abstract, introduction and the conclusion (if any) of a paper in latex format, generate three types of summaries:
+        1. One-sentence English TLDR
+        2. One-sentence Chinese TLDR
+        3. A detailed Chinese analysis (around 200 words) covering research background, innovations, key findings, and potential impact
         
+        Please format your response in JSON:
+        {
+            "tldr_en": "English TLDR here",
+            "tldr_zh": "Chinese TLDR here",
+            "detailed_analysis": "Detailed Chinese analysis here"
+        }
+
+        Paper content:
         \\title{__TITLE__}
         \\begin{abstract}__ABSTRACT__\\end{abstract}
         __INTRODUCTION__
         __CONCLUSION__
         """
+        
         prompt = prompt.replace('__TITLE__', self.title)
         prompt = prompt.replace('__ABSTRACT__', self.summary)
         prompt = prompt.replace('__INTRODUCTION__', introduction)
@@ -171,17 +191,34 @@ class ArxivPaper:
         prompt_tokens = enc.encode(prompt)
         prompt_tokens = prompt_tokens[:4000]  # truncate to 4000 tokens
         prompt = enc.decode(prompt_tokens)
+        
         llm = get_llm()
-        tldr = llm.generate(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user.",
-                },
-                {"role": "user", "content": prompt},
-            ]
-        )
-        return tldr
+        try:
+            analysis = llm.generate(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert scientific paper analyzer who can provide comprehensive and accurate paper summaries in both English and Chinese.",
+                    },
+                    {"role": "user", "content": prompt},
+                ]
+            )
+            # 解析 JSON 响应
+            import json
+            result = json.loads(analysis)
+            return result
+        except Exception as e:
+            logger.error(f"Failed to generate paper analysis for {self.arxiv_id}: {e}")
+            return {
+                "tldr_en": "Failed to generate English TLDR",
+                "tldr_zh": "无法生成中文摘要",
+                "detailed_analysis": "无法生成详细分析"
+            }
+
+    @cached_property
+    def tldr(self) -> str:
+        """保持向后兼容的 TLDR 方法"""
+        return self.paper_analysis.get("tldr_en", "Failed to generate TLDR")
 
     @cached_property
     def affiliations(self) -> Optional[list[str]]:
