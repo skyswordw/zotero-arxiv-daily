@@ -111,6 +111,11 @@ Wraps arxiv.Result with enhanced features:
 
 ### Email Rendering (construct_email.py)
 
+- **Parallel Data Loading**: `preload_paper_data()` loads all paper data concurrently
+  - Uses ThreadPoolExecutor with 5 workers for parallel processing
+  - Preloads TLDR, affiliations, and code URLs for all papers simultaneously
+  - Significantly reduces total processing time compared to serial approach
+  - Thread-safe access to cached_property attributes
 - **Daily Summary Generation**: `generate_daily_summary()` creates overview of all papers
   - Uses full paper titles and abstracts (up to 12k tokens)
   - LLM generates bilingual summary (EN + ZH) covering main topics, trends, and highlights
@@ -121,7 +126,6 @@ Wraps arxiv.Result with enhanced features:
 - HTML template with inline CSS for email client compatibility
 - Star rating system based on relevance score (6-8 scale, 5 stars max)
 - Paper blocks include: title, authors (truncated if >5), affiliations, arXiv ID, bilingual TLDR, PDF/Code links
-- 10-second sleep between papers to rate-limit LLM API calls
 
 ## Important Implementation Details
 

@@ -11,6 +11,7 @@ from loguru import logger
 from llm import get_llm
 import tiktoken
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 framework = """
 <!DOCTYPE HTML>
@@ -219,16 +220,43 @@ Papers:
     return result
 
 
+def preload_paper_data(paper: ArxivPaper) -> None:
+    """Preload all cached properties for a paper in parallel"""
+    try:
+        # Access cached properties to trigger computation
+        _ = paper.tldr
+        _ = paper.affiliations
+        _ = paper.code_url
+    except Exception as e:
+        logger.warning(f"Error preloading data for paper {paper.arxiv_id}: {e}")
+
+
 def render_email(papers:list[ArxivPaper]):
     parts = []
     if len(papers) == 0 :
         return framework.replace('__CONTENT__', get_empty_html())
 
-    # Generate daily summary at the beginning
+    # Preload all paper data in parallel (TLDR, affiliations, code URLs)
+    logger.info(f"Preloading data for {len(papers)} papers in parallel...")
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit all preload tasks
+        futures = {executor.submit(preload_paper_data, p): p for p in papers}
+
+        # Wait for completion with progress bar
+        for future in tqdm(as_completed(futures), total=len(papers), desc='Loading paper data'):
+            try:
+                future.result()
+            except Exception as e:
+                paper = futures[future]
+                logger.error(f"Failed to preload paper {paper.arxiv_id}: {e}")
+
+    # Generate daily summary (can now use preloaded data)
     daily_summary = generate_daily_summary(papers)
     summary_html = get_summary_html(daily_summary["en"], daily_summary["zh"])
 
-    for p in tqdm(papers,desc='Rendering Email'):
+    # Now render email (all data is already cached, so this is fast)
+    logger.info("Rendering email HTML...")
+    for p in papers:
         rate = get_stars(p.score)
         author_list = [a.name for a in p.authors]
         num_authors = len(author_list)
@@ -245,7 +273,6 @@ def render_email(papers:list[ArxivPaper]):
         else:
             affiliations = 'Unknown Affiliation'
         parts.append(get_block_html(p.title, authors,rate,p.arxiv_id ,p.tldr, p.pdf_url, p.code_url, affiliations))
-        time.sleep(10)
 
     content = summary_html + '<br>' + '</br><br>'.join(parts) + '</br>'
     return framework.replace('__CONTENT__', content)
