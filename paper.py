@@ -148,7 +148,7 @@ class ArxivPaper:
         return file_contents
     
     @cached_property
-    def tldr(self) -> str:
+    def tldr(self) -> dict[str, str]:
         introduction = ""
         conclusion = ""
         if self.tex is not None:
@@ -170,14 +170,17 @@ class ArxivPaper:
             if match:
                 conclusion = match.group(0)
         llm = get_llm()
-        prompt = """Given the title, abstract, introduction and the conclusion (if any) of a paper in latex format, generate a one-sentence TLDR summary in __LANG__:
-        
+        prompt = """Given the title, abstract, introduction and the conclusion (if any) of a paper in latex format, generate a one-sentence TLDR summary in both English and Chinese.
+
+Format your response exactly as:
+EN: [English summary in one sentence]
+ZH: [中文摘要，一句话概括]
+
         \\title{__TITLE__}
         \\begin{abstract}__ABSTRACT__\\end{abstract}
         __INTRODUCTION__
         __CONCLUSION__
         """
-        prompt = prompt.replace('__LANG__', llm.lang)
         prompt = prompt.replace('__TITLE__', self.title)
         prompt = prompt.replace('__ABSTRACT__', self.summary)
         prompt = prompt.replace('__INTRODUCTION__', introduction)
@@ -188,17 +191,39 @@ class ArxivPaper:
         prompt_tokens = enc.encode(prompt)
         prompt_tokens = prompt_tokens[:4000]  # truncate to 4000 tokens
         prompt = enc.decode(prompt_tokens)
-        
-        tldr = llm.generate(
+
+        tldr_text = llm.generate(
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user.",
+                    "content": "You are an assistant who perfectly summarizes scientific papers in multiple languages, and gives the core idea of the paper to the user.",
                 },
                 {"role": "user", "content": prompt},
             ]
         )
-        return tldr
+
+        # Parse the bilingual response
+        result = {"en": "", "zh": ""}
+        try:
+            # Extract EN and ZH lines
+            en_match = re.search(r'EN:\s*(.+?)(?=\nZH:|$)', tldr_text, re.DOTALL)
+            zh_match = re.search(r'ZH:\s*(.+?)$', tldr_text, re.DOTALL)
+
+            if en_match:
+                result["en"] = en_match.group(1).strip()
+            if zh_match:
+                result["zh"] = zh_match.group(1).strip()
+
+            # Fallback: if parsing fails, use the entire response as English
+            if not result["en"] and not result["zh"]:
+                result["en"] = tldr_text.strip()
+                result["zh"] = tldr_text.strip()
+        except Exception as e:
+            logger.debug(f"Failed to parse bilingual TLDR for {self.arxiv_id}: {e}")
+            result["en"] = tldr_text.strip()
+            result["zh"] = tldr_text.strip()
+
+        return result
 
     @cached_property
     def affiliations(self) -> Optional[list[str]]:
